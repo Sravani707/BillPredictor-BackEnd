@@ -1,8 +1,18 @@
 from flask import Flask, request, jsonify
 import mysql.connector
 from flask_cors import CORS
-from datetime import datetime
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 import numpy as np
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import random
+
+# ---------------- EMAIL CONFIG ---------------- #
+
+SENDER_EMAIL = "sravani.ch2004@gmail.com"
+APP_PASSWORD = "pgvqvskdkgrhviwr"
 
 app = Flask(__name__)
 CORS(app)
@@ -16,6 +26,43 @@ def get_db():
         password="",
         database="monthly_bill_db"
     )
+
+def generate_event_savings(event_id, user_id, event_date, total_cost):
+
+    db = get_db()
+    cursor = db.cursor()
+
+    today = datetime.today()
+    event_dt = datetime.strptime(event_date, "%Y-%m-%d")
+
+    # calculate months left
+    months = (
+        (event_dt.year - today.year) * 12 +
+        (event_dt.month - today.month)
+    )
+
+    if months <= 0:
+        months = 1
+
+    monthly_amount = round(float(total_cost) / months, 2)
+
+    current = today.replace(day=1)
+
+    for i in range(months):
+
+        month_year = current.strftime("%B %Y")
+
+        cursor.execute("""
+            INSERT INTO event_savings
+            (event_id, user_id, month_year, required_amount, saved)
+            VALUES (%s,%s,%s,%s,%s)
+        """, (event_id, user_id, month_year, monthly_amount, 0))
+
+        current += relativedelta(months=1)
+
+    db.commit()
+    cursor.close()
+    db.close()
 
 # ---------------- ROOT TEST ---------------- #
 
@@ -79,12 +126,138 @@ def login():
 
         if user:
             return jsonify({
-                "message": "Login Successful",
+                "status": "success",
+                "message": "Login successful",
                 "name": user['name'],
                 "user_id": user['id']
             })
         else:
             return jsonify({"message": "Invalid Credentials"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+#----------------------forget password-------------------#
+
+import random
+
+def send_otp_email(receiver_email, otp):
+
+    subject = "ExpenseAI Password Reset OTP"
+    body = f"Your OTP for resetting password is: {otp}"
+
+    msg = MIMEMultipart()
+    msg["From"] = SENDER_EMAIL
+    msg["To"] = receiver_email
+    msg["Subject"] = subject
+
+    msg.attach(MIMEText(body, "plain"))
+
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(SENDER_EMAIL, APP_PASSWORD)
+        server.sendmail(SENDER_EMAIL, receiver_email, msg.as_string())
+        server.quit()
+
+        print("OTP email sent successfully")
+
+    except Exception as e:
+        print("Email sending failed:", e)
+
+
+@app.route('/forgot_password', methods=['POST'])
+def forgot_password():
+    try:
+        data = request.json
+        email = data.get("email")
+
+        db = get_db()
+        cursor = db.cursor()
+
+        cursor.execute("SELECT * FROM users WHERE email=%s", (email,))
+        user = cursor.fetchone()
+
+        if not user:
+            cursor.close()
+            db.close()
+            return jsonify({"message": "Email not found"})
+
+        otp = random.randint(100000, 999999)
+
+        cursor.execute(
+            "UPDATE users SET otp=%s WHERE email=%s",
+            (otp, email)
+        )
+        db.commit()
+
+        cursor.close()
+        db.close()
+
+        # Send OTP to email
+        send_otp_email(email, otp)
+
+        return jsonify({
+            "message": "OTP sent successfully"
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+#--------------------------verify OTP----------------#
+@app.route('/verify_otp', methods=['POST'])
+def verify_otp():
+    try:
+        data = request.json
+        email = data.get("email")
+        otp = data.get("otp")
+
+        db = get_db()
+        cursor = db.cursor()
+
+        cursor.execute(
+            "SELECT * FROM users WHERE email=%s AND otp=%s",
+            (email, otp)
+        )
+
+        user = cursor.fetchone()
+
+        cursor.close()
+        db.close()
+
+        if user:
+            return jsonify({"message": "OTP verified"})
+        else:
+            return jsonify({"message": "Invalid OTP"})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+#----------------reset password---------------#
+@app.route('/reset_password', methods=['POST'])
+def reset_password():
+    try:
+        data = request.json
+        email = data.get("email")
+        new_password = data.get("password")
+
+        db = get_db()
+        cursor = db.cursor()
+
+        cursor.execute(
+            "UPDATE users SET password=%s, otp=NULL WHERE email=%s",
+            (new_password, email)
+        )
+
+        db.commit()
+
+        cursor.close()
+        db.close()
+
+        return jsonify({"message": "Password updated successfully"})
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -115,6 +288,88 @@ def add_expense():
         return jsonify({"message": "Expense added successfully"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# ---------------- ADD INCOME ---------------- #
+
+@app.route('/add_income', methods=['POST'])
+def add_income():
+    try:
+        data = request.json
+
+        user_id = data.get("user_id")
+        amount = data.get("amount")
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        query = """
+            INSERT INTO income (user_id, amount, date)
+            VALUES (%s, %s, CURDATE())
+        """
+
+        cursor.execute(query, (user_id, amount))
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({"message": "Income added successfully"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ---------------- GET INCOME ---------------- #
+
+@app.route('/get_income/<int:user_id>', methods=['GET'])
+def get_income(user_id):
+
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+
+    query = """
+        SELECT IFNULL(SUM(amount),0) AS total_income
+        FROM income
+        WHERE user_id = %s
+        AND MONTH(date)=MONTH(CURDATE())
+        AND YEAR(date)=YEAR(CURDATE())
+    """
+
+    cursor.execute(query, (user_id,))
+    result = cursor.fetchone()
+
+    cursor.close()
+    conn.close()
+
+    # ⭐ IMPORTANT FIX
+    result["total_income"] = float(result["total_income"])
+
+    return jsonify(result)
+
+
+#-------------------RECALCULATE_EVENT_SAVINGS-----------#
+
+@app.route("/recalculate_event_savings", methods=["POST"])
+def recalculate_event_savings():
+
+    data = request.json
+    event_id = data["event_id"]
+    new_amount = data["new_amount"]
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE event_savings
+        SET required_amount = %s
+        WHERE event_id = %s
+        AND saved = 0
+    """, (new_amount, event_id))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return jsonify({"message": "Updated successfully"})
+
 
 # ---------------- HISTORY ---------------- #
 
@@ -395,6 +650,15 @@ def add_event():
 
         db.commit()
 
+        event_id = cursor.lastrowid
+
+        generate_event_savings(
+            event_id,
+            user_id,
+            formatted_date,
+            estimated_cost
+        )
+
         cursor.close()
         db.close()
 
@@ -402,6 +666,8 @@ def add_event():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+        
 
 # ---------------- GET EVENTS ---------------- #
 
@@ -427,6 +693,103 @@ def get_events(user_id):
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# ---------------- GET EVENT SAVINGS ---------------- #
+
+@app.route('/event_savings/<int:user_id>/<int:event_id>', methods=['GET'])
+def get_event_savings(user_id, event_id):
+
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
+
+    cursor.execute("""
+        SELECT id, month_year, required_amount, saved
+        FROM event_savings
+        WHERE user_id=%s AND event_id=%s
+        ORDER BY id ASC
+    """, (user_id, event_id))
+
+    rows = cursor.fetchall()
+
+    # ✅ FIX: convert 0/1 → True/False
+    for row in rows:
+        row["saved"] = bool(row["saved"])
+
+    cursor.close()
+    db.close()
+
+    return jsonify({
+        "savings_plan": rows
+    })
+
+@app.route('/update_saving_status', methods=['POST'])
+def update_saving_status():
+    data = request.get_json()
+    print("Received:", data)  # DEBUG
+
+    saving_id = data.get('savingId')
+    saved = data.get('saved')
+
+    if saving_id is None or saved is None:
+        return jsonify({"error": "missing savingId or saved"}), 400
+
+    db = get_db()          # ✅ get database connection
+    cursor = db.cursor()
+    try:
+        cursor.execute(
+            "UPDATE event_savings SET saved=%s WHERE id=%s",
+            (saved, saving_id)
+        )
+        db.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        db.close()
+
+
+# ---------------- EVENT PLANNER (MAIN SCREEN) ---------------- #
+
+@app.route('/event_planner/<int:user_id>', methods=['GET'])
+def event_planner(user_id):
+
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
+
+    cursor.execute("""
+        SELECT
+            e.id,
+            e.event_name,
+            e.event_date,
+            e.estimated_cost,
+
+            IFNULL(SUM(
+                CASE
+                    WHEN es.saved = 1
+                    THEN es.required_amount
+                    ELSE 0
+                END
+            ),0) AS total_saved
+
+        FROM events e
+
+        LEFT JOIN event_savings es
+            ON e.id = es.event_id
+
+        WHERE e.user_id = %s
+        GROUP BY e.id
+        ORDER BY e.event_date ASC
+    """, (user_id,))
+
+    result = cursor.fetchall()
+
+    cursor.close()
+    db.close()
+
+    return jsonify(result)
+
 
         # ---------------- DELETE EVENT ---------------- #
 

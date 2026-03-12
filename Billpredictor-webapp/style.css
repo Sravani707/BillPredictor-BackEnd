@@ -1,0 +1,74 @@
+/* Page background */
+body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: linear-gradient(135deg,#5f9cff,#8fd3f4);
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Card container */
+.container {
+    background: #ffffff;
+    padding: 35px 30px;
+    width: 340px;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    text-align: center;
+}
+
+/* Heading */
+h2 {
+    margin-bottom: 20px;
+    color: #333;
+}
+
+/* Inputs */
+input {
+    width: 100%;
+    padding: 12px;
+    margin: 8px 0;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    outline: none;
+    font-size: 14px;
+}
+
+input:focus {
+    border-color: #5f9cff;
+    box-shadow: 0 0 5px rgba(95,156,255,0.4);
+}
+
+/* Buttons */
+button {
+    width: 100%;
+    padding: 12px;
+    background: #5f9cff;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    margin-top: 10px;
+    font-size: 15px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #4a84e0;
+}
+
+/* Dashboard links */
+a {
+    display: block;
+    margin: 12px 0;
+    padding: 12px;
+    background: #5f9cff;
+    color: white;
+    text-decoration: none;
+    border-radius: 8px;
+}
+
+a:hover {
+    background: #4a84e0;
+}
