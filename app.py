@@ -26,7 +26,8 @@ def get_db():
         host="localhost",
         user="root",
         password="",
-        database="monthly_bill_db"
+        database="monthly_bill_db",
+        port=3307
     )
 
 def generate_event_savings(event_id, user_id, event_date, total_cost):
@@ -110,32 +111,35 @@ def register():
 @app.route('/login', methods=['POST'])
 def login():
     try:
-        data = request.json
+        data = request.get_json(silent=True)
+
+        if not data:
+            return jsonify({"error": "Invalid JSON"}), 400
+
         email = data.get('email')
         password = data.get('password')
 
         db = get_db()
         cursor = db.cursor(dictionary=True)
 
-        cursor.execute(
-            "SELECT * FROM users WHERE email=%s AND password=%s",
-            (email, password)
-        )
+        cursor.execute("SELECT * FROM users WHERE email=%s", (email,))
         user = cursor.fetchone()
 
         cursor.close()
         db.close()
 
-        if user:
+        if user and user['password'] == password:
             return jsonify({
                 "status": "success",
                 "message": "Login successful",
                 "name": user['name'],
                 "user_id": user['id']
             })
-        else:
-            return jsonify({"message": "Invalid Credentials"})
+
+        return jsonify({"message": "Invalid Credentials"})
+
     except Exception as e:
+        print("LOGIN ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
 
