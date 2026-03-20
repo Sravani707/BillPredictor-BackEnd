@@ -4,6 +4,8 @@ from flask_cors import CORS
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import numpy as np
+import pandas as pd
+from prophet import Prophet
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -474,6 +476,8 @@ def predict():
 
 # ---------------- AI PREDICT (WITH EVENTS) ---------------- #
 
+# ---------------- AI PREDICT (WITH EVENTS) ---------------- #
+
 @app.route('/ai_predict', methods=['POST'])
 def ai_predict():
     try:
@@ -481,14 +485,14 @@ def ai_predict():
         user_id = data.get('user_id')
 
         db = get_db()
-        cursor = db.cursor()
+        cursor = db.cursor(dictionary=True)   # ✅ dictionary cursor
 
         # ---------------------------------------------------
-        # STEP 1: Get last 3 months expense totals
+        # STEP 1: Collect training data
         # ---------------------------------------------------
         cursor.execute("""
             SELECT DATE_FORMAT(expense_date, '%Y-%m') AS month,
-                   SUM(amount) as total
+                   SUM(amount) AS total
             FROM expenses
             WHERE user_id = %s
             GROUP BY month
@@ -506,26 +510,38 @@ def ai_predict():
                 "message": "Not enough data for prediction"
             })
 
-        # Oldest → newest order
+        # Oldest → newest
         rows = rows[::-1]
 
-        months = np.arange(len(rows))
-        totals = np.array([float(r[1]) for r in rows])
-
         # ---------------------------------------------------
-        # STEP 2: AI Learning (Linear Regression)
-        # y = mx + c
+        # STEP 2: Prophet ML Model
         # ---------------------------------------------------
-        m, c = np.polyfit(months, totals, 1)
 
-        next_month_index = len(rows)
-        expense_prediction = float(m * next_month_index + c)
+        df = pd.DataFrame({
+            "ds": pd.to_datetime(
+                [r["month"] + "-01" for r in rows],
+                format="%Y-%m-%d"
+            ),
+            "y": [float(r["total"]) for r in rows]
+        })
+
+        df = df.sort_values("ds")
+
+        # Train model
+        model = Prophet()
+        model.fit(df)
+
+        # Predict next month
+        future = model.make_future_dataframe(periods=1, freq='MS')
+        forecast = model.predict(future)
+
+        expense_prediction = float(forecast["yhat"].iloc[-1])
 
         if expense_prediction < 0:
             expense_prediction = 0
 
         # ---------------------------------------------------
-        # STEP 3: Get NEXT MONTH dates
+        # STEP 3: Next month calculation
         # ---------------------------------------------------
         today = datetime.now()
 
@@ -537,7 +553,7 @@ def ai_predict():
             next_year = today.year
 
         # ---------------------------------------------------
-        # STEP 4: Fetch events for NEXT month
+        # STEP 4: Fetch events
         # ---------------------------------------------------
         cursor.execute("""
             SELECT event_name, estimated_cost
@@ -549,10 +565,10 @@ def ai_predict():
 
         events = cursor.fetchall()
 
-        event_total = sum(float(e[1]) for e in events) if events else 0
+        event_total = sum(float(e["estimated_cost"]) for e in events) if events else 0
 
         # ---------------------------------------------------
-        # STEP 5: Final AI Prediction
+        # STEP 5: Final Prediction
         # ---------------------------------------------------
         final_prediction = expense_prediction + event_total
 
@@ -564,10 +580,11 @@ def ai_predict():
             "event_added_amount": round(event_total, 2),
             "ai_predicted_next_month_expense": round(final_prediction, 2),
             "events_count": len(events),
-            "based_on_months": [r[0] for r in rows]
+            "based_on_months": [r["month"] for r in rows]
         })
 
     except Exception as e:
+        print("AI Predict Error:", e)   # ✅ shows error in terminal
         return jsonify({"error": str(e)}), 500
         
 # ---------------- GET CATEGORIES ---------------- #
