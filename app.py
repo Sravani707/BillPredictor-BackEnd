@@ -145,7 +145,7 @@ def login():
 
 # ---------------- UPDATE PROFILE ---------------- #
 
-@app.route('/update_profile', methods=['POST'])
+@app.route('/update_profile', methods=['PUT'])
 def update_profile():
     try:
         data = request.json
