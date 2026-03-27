@@ -152,19 +152,18 @@ def update_profile():
 
         user_id = data.get("user_id")
         name = data.get("name")
-        email = data.get("email")
 
-        if not user_id:
-            return jsonify({"message": "User ID missing"}), 400
+        if not user_id or not name:
+            return jsonify({"message": "Missing data"}), 400
 
         db = get_db()
         cursor = db.cursor()
 
         cursor.execute("""
             UPDATE users
-            SET name=%s, email=%s
+            SET name=%s
             WHERE id=%s
-        """, (name, email, user_id))
+        """, (name, user_id))
 
         db.commit()
 
@@ -174,7 +173,7 @@ def update_profile():
         return jsonify({
             "status": "success",
             "message": "Profile updated successfully"
-        })
+        }), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
