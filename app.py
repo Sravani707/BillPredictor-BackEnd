@@ -143,7 +143,42 @@ def login():
         return jsonify({"error": str(e)}), 500
 
 
+# ---------------- UPDATE PROFILE ---------------- #
 
+@app.route('/update_profile', methods=['POST'])
+def update_profile():
+    try:
+        data = request.json
+
+        user_id = data.get("user_id")
+        name = data.get("name")
+        email = data.get("email")
+
+        if not user_id:
+            return jsonify({"message": "User ID missing"}), 400
+
+        db = get_db()
+        cursor = db.cursor()
+
+        cursor.execute("""
+            UPDATE users
+            SET name=%s, email=%s
+            WHERE id=%s
+        """, (name, email, user_id))
+
+        db.commit()
+
+        cursor.close()
+        db.close()
+
+        return jsonify({
+            "status": "success",
+            "message": "Profile updated successfully"
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+        
 #----------------------forget password-------------------#
 
 import random
